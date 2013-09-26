@@ -5,11 +5,14 @@ package org.tbyrne.project
 	import flash.filesystem.File;
 	import flash.net.FileFilter;
 	import flash.net.SharedObject;
+	
+	import org.tbyrne.ProjectResourceTypes;
 
 	public class ProjectManager extends EventDispatcher
 	{
 		public static const PROJECT_FILE_TYPE:FileFilter = new FileFilter("Video Packer Project (*.vpp)", "*.vpp");
 		
+		private static const SEQUENCE_PARSER:RegExp = /^(.*?)(\d*)(\D*?(?:\..*)?)$/;
 		
 		public function get openProjects():Vector.<Project>{
 			return _openProjects;
@@ -36,11 +39,11 @@ package org.tbyrne.project
 			_settings = SharedObject.getLocal("project");
 			
 			if(_settings.data.openProjects){
-				var refs = _settings.data.openProjects;
+				var refs:Array = _settings.data.openProjects;
 				for(var i:int=0; i<refs.length; ++i){
 					var projectRef:String = refs[i];
 					var file:File = new File(projectRef);
-					if(file.exists)doOpenProject(file, _settings.data.currentIndex==i);
+					if(file.exists)doOpenProject(file, false, _settings.data.currentIndex==i);
 				}
 			}else{
 				_settings.data.openProjects = [];
@@ -99,12 +102,15 @@ package org.tbyrne.project
 			dispatchEvent(event);
 		}
 		
-		public function openProject():void{
-			var file:File = new File();
-			file.addEventListener(Event.SELECT, onOpenComplete);
-			file.addEventListener(Event.CANCEL, onOpenCancel);
-			file.browseForOpen("Open Project", [ProjectManager.PROJECT_FILE_TYPE]);
-			
+		public function openProject(file:File=null):void{
+			if(file){
+				doOpenProject(file, true, true);
+			}else{
+				file = new File();
+				file.addEventListener(Event.SELECT, onOpenComplete);
+				file.addEventListener(Event.CANCEL, onOpenCancel);
+				file.browseForOpen("Open Project", [ProjectManager.PROJECT_FILE_TYPE]);
+			}
 		}
 		
 		protected function onOpenComplete(event:Event):void
@@ -113,19 +119,22 @@ package org.tbyrne.project
 			file.removeEventListener(Event.SELECT, onOpenComplete);
 			file.removeEventListener(Event.CANCEL, onOpenCancel);
 			
+			
+			doOpenProject(file, true, true);
+		}
+		
+		private function doOpenProject(file:File, checkExisting:Boolean, setCurrent:Boolean):Project
+		{
 			var project:Project;
-			for each(project in _openProjects){
-				if(project.saveFile && project.saveFile.nativePath==file.nativePath){
-					setCurrentProject(project);
-					return;
+			if(checkExisting){
+				for each(project in _openProjects){
+					if(project.saveFile && project.saveFile.nativePath==file.nativePath){
+						if(setCurrent)setCurrentProject(project);
+						return project;
+					}
 				}
 			}
 			
-			doOpenProject(file, true);
-		}
-		
-		private function doOpenProject(file:File, setCurrent:Boolean=false):Project
-		{
 			var project:Project = createNew(false);
 			project.open(file);
 			if(setCurrent)setCurrentProject(project);
@@ -205,6 +214,55 @@ package org.tbyrne.project
 		public function loadResources():void
 		{
 			_currentProject.loader.beginLoad();
+		}
+		
+		public function addResources(files:Array):void
+		{
+			var file:File;
+			if(files.length==1){
+				file = files[0];
+				
+				var match:Object = SEQUENCE_PARSER.exec(file.name);
+				if(match){
+					var prefix:String = match[1];
+					var number:String = match[2];
+					var suffix:String = match[3];
+					
+					var numerals:int = number.length;
+					var start:int = parseInt(number);
+					var count:int = 1;
+					
+					var dir:File = file.parent;
+					var childResources:Vector.<ProjectResource> = new Vector.<ProjectResource>();
+					childResources.push(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+					while(true){
+						var index:String = String(start+count);
+						while(index.length<numerals)index = "0"+index;
+						var nextFile:File = new File(dir.nativePath+"/"+prefix+index+suffix);
+						if(nextFile.exists){
+							childResources.push(new ProjectResource(ProjectResourceTypes.IMAGE, nextFile));
+							++count;
+						}else{
+							break;
+						}
+					}
+					
+					if(count==1){
+						_currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+					}else{
+						_currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE_SEQUENCE, file, childResources));
+					}
+				}else{
+					_currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+				}
+			}else{
+				var resources:Vector.<ProjectResource> = new Vector.<ProjectResource>();
+				for(var i:int=0; i<files.length; ++i){
+					file = files[i];
+					resources.push(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+				}
+				_currentProject.addResources(resources);
+			}
 		}
 	}
 }

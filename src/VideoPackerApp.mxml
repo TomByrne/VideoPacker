@@ -9,20 +9,19 @@
 	<fx:Script>
 		<![CDATA[
 			import mx.events.FlexNativeMenuEvent;
+			import mx.managers.DragManager;
+			import mx.managers.NativeDragManagerImpl;
 			
-			import org.tbyrne.ProjectResourceTypes;
 			import org.tbyrne.adaptors.ResourceTreeDescriptor;
 			import org.tbyrne.project.ProjManagerEvent;
 			import org.tbyrne.project.ProjResourceEvent;
 			import org.tbyrne.project.ProjectEvent;
 			import org.tbyrne.project.ProjectManager;
-			import org.tbyrne.project.ProjectResource;
 			import org.tbyrne.utils.vectorToArray;
 			import org.tbyrne.videoPacker.VideoPacker;
 			import org.tbyrne.videoPacker.exporters.DragonBonesExporter;
 			import org.tbyrne.videoPacker.exporters.ExportTypes;
 			
-			private static const SEQUENCE_PARSER:RegExp = /^(.*?)(\d*)(\D*?(?:\..*)?)$/;
 			
 			private var _projManager:ProjectManager;
 			private var _videoPacker:VideoPacker;
@@ -43,7 +42,8 @@
 				_videoExporter = new DragonBonesExporter();
 				
 				resourceTree.dataDescriptor = new ResourceTreeDescriptor();
-				//resourceTree.dataDescriptor = new DeclarativeTreeDescriptor("childResources");
+				this.addEventListener(NativeDragEvent.NATIVE_DRAG_DROP, doDragDrop);
+				this.addEventListener(NativeDragEvent.NATIVE_DRAG_ENTER,onDragIn);
 				
 				menu.addEventListener(FlexNativeMenuEvent.ITEM_CLICK, menuShowInfo); 
 			}
@@ -109,53 +109,7 @@
 			
 			protected function onImportSelected(event:FileListEvent):void
 			{
-				var file:File;
-				var files:Array = event.files;
-				if(files.length==1){
-					file = files[0];
-					
-					var match:Object = SEQUENCE_PARSER.exec(file.name);
-					if(match){
-						var prefix:String = match[1];
-						var number:String = match[2];
-						var suffix:String = match[3];
-						
-						var numerals:int = number.length;
-						var start:int = parseInt(number);
-						var count:int = 1;
-						
-						var dir:File = file.parent;
-						var childResources:Vector.<ProjectResource> = new Vector.<ProjectResource>();
-						childResources.push(new ProjectResource(ProjectResourceTypes.IMAGE, file));
-						while(true){
-							var index:String = String(start+count);
-							while(index.length<numerals)index = "0"+index;
-							var nextFile:File = new File(dir.nativePath+"/"+prefix+index+suffix);
-							if(nextFile.exists){
-								childResources.push(new ProjectResource(ProjectResourceTypes.IMAGE, nextFile));
-								++count;
-							}else{
-								break;
-							}
-						}
-						
-						if(count==1){
-							_projManager.currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE, file));
-						}else{
-							_projManager.currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE_SEQUENCE, file, childResources));
-						}
-					}else{
-						_projManager.currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE, file));
-					}
-				}else{
-					var resources:Vector.<ProjectResource> = new Vector.<ProjectResource>();
-					for(var i:int=0; i<files.length; ++i){
-						file = files[i];
-						resources.push(new ProjectResource(ProjectResourceTypes.IMAGE, file));
-					}
-					_projManager.currentProject.addResources(resources);
-				}
-				
+				_projManager.addResources(event.files);
 			}
 			
 			private function doAnalyse():void{
@@ -231,6 +185,33 @@
 				if(_videoExporter.state==DragonBonesExporter.STATE_DONE){
 					exportButton.enabled = true;
 					this.removeEventListener(Event.ENTER_FRAME, doExport);
+				}
+			}
+			protected function onDragIn(event:NativeDragEvent):void{
+				DragManager.acceptDragDrop(this);
+			}
+			protected function doDragDrop(event:NativeDragEvent):void{
+				var dropFiles:Array = event.clipboard.getData(ClipboardFormats.FILE_LIST_FORMAT) as Array;
+				var resources:Array = [];
+				for each (var file:File in dropFiles){
+					switch (file.extension){
+						case 'vpp' :
+							_projManager.openProject(file);
+							break;
+						case 'png' :
+						case 'jpg' :
+						case 'jpeg' :
+							resources.push(file);
+							break;
+						default:
+							throw new Error("Unrecognised file format: "+file.extension);
+					}
+				}
+				if(resources.length){
+					if(!_projManager.currentProject){
+						_projManager.createNew();
+					}
+					_projManager.addResources(resources);
 				}
 			}
 			
