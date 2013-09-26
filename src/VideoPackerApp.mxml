@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication
+	xmlns:fx="http://ns.adobe.com/mxml/2009"
+	xmlns:s="library://ns.adobe.com/flex/spark"
+	xmlns:mx="library://ns.adobe.com/flex/mx" xmlns:core="mx.core.*"
+	creationComplete="onInitialized()" width="1000" height="700"
+	showStatusBar="false">
+	
+	<fx:Script>
+		<![CDATA[
+			import mx.events.FlexNativeMenuEvent;
+			
+			import org.tbyrne.ProjectResourceTypes;
+			import org.tbyrne.adaptors.ResourceTreeDescriptor;
+			import org.tbyrne.project.ProjManagerEvent;
+			import org.tbyrne.project.ProjResourceEvent;
+			import org.tbyrne.project.ProjectEvent;
+			import org.tbyrne.project.ProjectManager;
+			import org.tbyrne.project.ProjectResource;
+			import org.tbyrne.utils.vectorToArray;
+			import org.tbyrne.videoPacker.VideoPacker;
+			import org.tbyrne.videoPacker.exporters.DragonBonesExporter;
+			import org.tbyrne.videoPacker.exporters.ExportTypes;
+			
+			private static const SEQUENCE_PARSER:RegExp = /^(.*?)(\d*)(\D*?(?:\..*)?)$/;
+			
+			private var _projManager:ProjectManager;
+			private var _videoPacker:VideoPacker;
+			private var _videoExporter:DragonBonesExporter;
+			
+			private function onInitialized() : void {
+				
+				_projManager = new ProjectManager();
+				_projManager.addEventListener(ProjManagerEvent.OPEN_PROJECTS_CHANGED, onOpenProjectsChanged);
+				_projManager.addEventListener(ProjManagerEvent.CURRENT_PROJECT_CHANGED, onCurrentProjectChanged);
+				_projManager.addEventListener(ProjectEvent.PROJECT_RESOURCES_CHANGED, onResourcesChanged);
+				_projManager.addEventListener(ProjResourceEvent.PROJECT_RESOURCES_LOADED, onResourcesLoaded);
+				_projManager.addEventListener(Event.CHANGE, onProjStateChanged);
+				
+				if(_projManager.openProjects.length)onOpenProjectsChanged();
+				if(_projManager.currentProject)onCurrentProjectChanged();
+				
+				_videoExporter = new DragonBonesExporter();
+				
+				resourceTree.dataDescriptor = new ResourceTreeDescriptor();
+				//resourceTree.dataDescriptor = new DeclarativeTreeDescriptor("childResources");
+				
+				menu.addEventListener(FlexNativeMenuEvent.ITEM_CLICK, menuShowInfo); 
+			}
+			protected function onOpenProjectsChanged(event:Event=null):void{
+				var collection:ArrayCollection = projectMenu.dataProvider as ArrayCollection;
+				collection.source = _projManager.openProjectsArr;
+				collection.refresh();
+			}
+			protected function onCurrentProjectChanged(event:Event=null):void{
+				var active:Boolean = (_projManager.currentProject!=null);
+				myMenuData.descendants().(attribute("id")=='saveAs').@enabled = active;
+				myMenuData.descendants().(attribute("id")=="close").@enabled = active;
+				importButton.enabled = active;
+				analyseButton.enabled = active;
+				projectMenu.selectedIndex = _projManager.currentIndex;
+				
+				if(active){
+					if(!_projManager.currentProject.exportType)_projManager.currentProject.exportType = ExportTypes.DRAGON_BONES;
+					resourceTree.dataProvider = new ArrayCollection(vectorToArray(_projManager.currentProject.resources));
+				}
+			}
+			protected function onProjStateChanged(event:Event=null):void{
+				var active:Boolean = (_projManager.currentProject && _projManager.currentProject.saveFile);
+				myMenuData.descendants().(attribute("id")=='save').@enabled = active;
+				(projectMenu.dataProvider as ArrayCollection).refresh();
+			}
+			
+			
+			protected function onResourcesChanged(event:Event):void{
+				resourceTree.dataProvider = new ArrayCollection(vectorToArray(_projManager.currentProject.resources));
+			}
+			protected function setCurrentProject():void{
+				_projManager.selectProject(projectMenu.selectedIndex);
+			}
+			private function menuShowInfo(event:FlexNativeMenuEvent):void {
+				switch(String(event.item.@id)){
+					case "new":
+						_projManager.createNew();
+						break;
+					case "open":
+						_projManager.openProject();
+						break;
+					case "save":
+						_projManager.saveCurrent()
+						break;
+					case "saveAs":
+						_projManager.saveCurrentAs();
+						break;
+					case "close":
+						_projManager.closeCurrent();
+						break;
+				}
+			}
+			
+			private function doImport():void{
+				var imgFileFilter : FileFilter = new FileFilter("Images", "*.jpg;*.jpeg;*.gif;*.png");
+				var allFilesFilter : FileFilter = new FileFilter("All files", "*");
+				var file:File = new File();
+				file.addEventListener(FileListEvent.SELECT_MULTIPLE, onImportSelected);
+				file.browseForOpenMultiple("Import Images", [imgFileFilter, allFilesFilter]);
+				
+			}
+			
+			protected function onImportSelected(event:FileListEvent):void
+			{
+				var file:File;
+				var files:Array = event.files;
+				if(files.length==1){
+					file = files[0];
+					
+					var match:Object = SEQUENCE_PARSER.exec(file.name);
+					if(match){
+						var prefix:String = match[1];
+						var number:String = match[2];
+						var suffix:String = match[3];
+						
+						var numerals:int = number.length;
+						var start:int = parseInt(number);
+						var count:int = 1;
+						
+						var dir:File = file.parent;
+						var childResources:Vector.<ProjectResource> = new Vector.<ProjectResource>();
+						childResources.push(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+						while(true){
+							var index:String = String(start+count);
+							while(index.length<numerals)index = "0"+index;
+							var nextFile:File = new File(dir.nativePath+"/"+prefix+index+suffix);
+							if(nextFile.exists){
+								childResources.push(new ProjectResource(ProjectResourceTypes.IMAGE, nextFile));
+								++count;
+							}else{
+								break;
+							}
+						}
+						
+						if(count==1){
+							_projManager.currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+						}else{
+							_projManager.currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE_SEQUENCE, file, childResources));
+						}
+					}else{
+						_projManager.currentProject.addResource(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+					}
+				}else{
+					var resources:Vector.<ProjectResource> = new Vector.<ProjectResource>();
+					for(var i:int=0; i<files.length; ++i){
+						file = files[i];
+						resources.push(new ProjectResource(ProjectResourceTypes.IMAGE, file));
+					}
+					_projManager.currentProject.addResources(resources);
+				}
+				
+			}
+			
+			private function doAnalyse():void{
+				_projManager.loadResources();
+			}
+			
+			protected function onResourcesLoaded(event:Event):void
+			{
+				_videoPacker = new VideoPacker();
+				_videoPacker.begin(_projManager.currentProject.loader.bitmaps);
+				_videoExporter.setVideoPacker(_videoPacker);
+				
+				this.addEventListener(Event.ENTER_FRAME, doProcess);
+				
+				timelineSlider.enabled = true;
+				timelineSlider.maximum = _projManager.currentProject.loader.bitmaps.length-1;
+				setOriginalImage();
+			}
+
+			private function doProcess(event : Event) : void {
+				_videoPacker.process(60); // milliseconds
+				var bitmap:BitmapData = _videoPacker.rootChunk.sameImage.clone();
+               
+			   drawBlobs(bitmap, _videoPacker.rootChunk.initialBlobs, 0xffff00);
+			   drawBlobs(bitmap, _videoPacker.rootChunk.blobs, 0x00ff00);
+				processImage.source = bitmap;
+				
+				if(_videoPacker.state==VideoPacker.STATE_DONE){
+					exportButton.enabled = true;
+					this.removeEventListener(Event.ENTER_FRAME, doProcess);
+				}
+			}
+
+			private function drawBlobs(bitmap:BitmapData, blobs : Vector.<Rectangle>, color : int) : void {
+			  	var i:int;
+				for each(var blob:Rectangle in blobs){
+					for(i = blob.left; i<blob.right; ++i){
+						bitmap.setPixel(i, blob.top, color);
+						bitmap.setPixel(i, blob.bottom, color);
+					}
+					for(i = blob.top; i<blob.bottom; ++i){
+						bitmap.setPixel(blob.left, i, color);
+						bitmap.setPixel(blob.right, i, color);
+					}
+				}
+			}
+			
+			private function setOriginalImage():void{
+				if(origImageModes.selectedIndex==0){
+					originalImage.source = _videoPacker.bitmaps[timelineSlider.value];
+				}else{
+					if(timelineSlider.value<_videoPacker.rootChunk.diffFrames.length-1){
+						originalImage.source = _videoPacker.rootChunk.diffFrames[timelineSlider.value];
+					}else{
+						originalImage.source = null;
+					}
+				}
+			}
+			
+			private function beginExport():void{
+				this.addEventListener(Event.ENTER_FRAME, doExport);
+				exportButton.enabled = false;
+			}
+			private function doExport(e:Event):void{
+				_videoExporter.process(60); // milliseconds
+				
+				if(_videoExporter.textureImage){
+					processImage.source = _videoExporter.textureImage;
+				}else{
+					processImage.source = _videoExporter.lastCompareImage;
+				}
+				
+				if(_videoExporter.state==DragonBonesExporter.STATE_DONE){
+					exportButton.enabled = true;
+					this.removeEventListener(Event.ENTER_FRAME, doExport);
+				}
+			}
+			
+		]]>
+	</fx:Script>
+	<fx:Style>
+		@namespace s "library://ns.adobe.com/flex/spark";
+		@namespace mx "library://ns.adobe.com/flex/mx";
+		@namespace core "mx.core.*";
+		
+		mx|Tree{
+			folderClosedIcon: ClassReference(null);
+			folderOpenIcon: ClassReference(null);
+			defaultLeafIcon: ClassReference(null);
+		}
+	</fx:Style>
+	<fx:Declarations>
+		<fx:XML format="e4x" id="myMenuData"> 
+			<root> 
+				<menuitem label="File"> 
+					<!--<menuitem label="SubMenuItem A-1" type="check" toggled="true"/> -->
+					<menuitem id="new" label="New Project"/> 
+					<menuitem id="open" label="Open Project..."/> 
+					<menuitem id="save" label="Save" enabled="false"/> 
+					<menuitem id="saveAs" label="Save As..." enabled="false"/>
+					<menuitem id="close" label="Close Project" enabled="false"/>
+				</menuitem>
+			</root> 
+		</fx:XML>
+	</fx:Declarations>
+	<s:layout>
+	    <s:ConstraintLayout>
+	        <s:constraintRows>
+				<s:ConstraintRow id="projectsRow"/>
+	            <s:ConstraintRow id="imageButtonsRow"/>
+	            <s:ConstraintRow id="imageRow" height="50%"/>
+				<s:ConstraintRow id="timelineRow"/>
+				<s:ConstraintRow id="exportOptionsRow" height="50%"/>
+				<s:ConstraintRow id="actionsRow"/>
+	        </s:constraintRows>
+	        <s:constraintColumns>
+	            <s:ConstraintColumn id="col1" width="50%"/>
+	            <s:ConstraintColumn id="col2" width="50%"/>
+	        </s:constraintColumns>
+	    </s:ConstraintLayout>
+	</s:layout>
+	<s:menu> 
+		<mx:FlexNativeMenu dataProvider="{myMenuData}"  
+						   labelField="@label"  
+						   showRoot="false"/>
+	</s:menu>
+	<s:TabBar id="projectMenu" left="col1:3" right="col1:3" top="projectsRow:3" bottom="projectsRow:0" change="setCurrentProject()">
+		<s:layout>
+			<s:HorizontalLayout gap="0" variableColumnWidth="true" />
+		</s:layout>
+		<mx:ArrayCollection/>
+	</s:TabBar>
+	<s:TabBar id="origImageModes" left="col1:3" right="col1:3" top="imageButtonsRow:3" bottom="imageButtonsRow:0" change="setOriginalImage()">
+		<mx:ArrayCollection>
+            <fx:String>Original</fx:String> 
+            <fx:String>Diff</fx:String>
+        </mx:ArrayCollection>
+	</s:TabBar>
+	<s:BitmapImage id="originalImage" left="col1:3" right="col1:3" top="imageRow:0" bottom="imageRow:3" fillMode="scale" scaleMode="letterbox" smooth="true"/>
+	<s:BitmapImage id="processImage" left="col2:3" right="col2:3" top="imageRow:0"
+		bottom="imageRow:3" fillMode="scale" scaleMode="letterbox"
+		smooth="true"/>
+	<s:HSlider id="timelineSlider" left="col1:3" right="col1:3" top="timelineRow:3" bottom="timelineRow:3" stepSize="1" enabled="false" change="setOriginalImage()"/>
+	<mx:Tree id="resourceTree" left="col1:3" right="col1:3" top="exportOptionsRow:3" bottom="exportOptionsRow:3"/>
+	<s:HGroup left="col1:3" right="col2:3" top="actionsRow:3" bottom="actionsRow:3" horizontalAlign="right">
+		<s:Button id="importButton" label="Add Imagery" click="doImport()" enabled="false"/>
+		<s:Button id="analyseButton" label="Load &amp; Analyse Imagery" click="doAnalyse()" enabled="false"/>
+		<s:Button id="exportButton" label="Dragon Bones Export" click="beginExport()" enabled="false"/>
+	</s:HGroup>
+</s:WindowedApplication>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+	<name>VideoPacker</name>
+	<comment></comment>
+	<projects>
+	</projects>
+	<buildSpec>
+		<buildCommand>
+			<name>com.adobe.flexbuilder.project.flexbuilder</name>
+			<arguments>
+			</arguments>
+		</buildCommand>
+		<buildCommand>
+			<name>com.adobe.flexbuilder.project.apollobuilder</name>
+			<arguments>
+			</arguments>
+		</buildCommand>
+	</buildSpec>
+	<natures>
+		<nature>com.adobe.flexbuilder.project.apollonature</nature>
+		<nature>com.adobe.flexbuilder.project.flexnature</nature>
+		<nature>com.adobe.flexbuilder.project.actionscriptnature</nature>
+	</natures>
+	<linkedResources>
+		<link>
+			<name>[source path] DragonBones-src</name>
+			<type>2</type>
+			<locationURI>PROJECTS/GE/DragonBones/src</locationURI>
+		</link>
+		<link>
+			<name>[source path] SkeletonAnimationDesignPanel-src</name>
+			<type>2</type>
+			<locationURI>PROJECTS/DragonBones/SkeletonAnimationDesignPanel/src</locationURI>
+		</link>
+	</linkedResources>
+</projectDescription>
